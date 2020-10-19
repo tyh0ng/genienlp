@@ -75,7 +75,6 @@ def shift_tokens_right(input_ids, pad_token_id):
     prev_output_tokens[:, 0] = input_ids.gather(1, index_of_eos).squeeze()
     prev_output_tokens[:, 1:] = input_ids[:, :-1]
     return prev_output_tokens
-
     
 
 def train(args, train_dataset, model, tokenizer):
@@ -497,9 +496,11 @@ def parse_argv(parser):
     parser.add_argument('--tgt_lang', type=str, help='target language used for translation task')
 
     parser.add_argument('--debug', action='store_true', help='print intermediate results for debugging')
-    parser.add_argument('--reset_weights', action='store_true', help='Remove all pre-training and train a model from scratch')
+    parser.add_argument('--no_pretraining', action='store_true', help='Remove all pre-training and train a model from scratch')
     parser.add_argument("--freeze_encoder", action="store_true")
     parser.add_argument("--freeze_embeds", action="store_true")
+    parser.add_argument("--bidirectional_decoder", action="store_true", help='if true we will initialize deocder weights from the encoder of another seq2seq model;'
+                                                        ' this will reset decoder wights so all pretraining for decoder parameters will be removed')
 
 
 def main(args):
@@ -556,7 +557,7 @@ def main(args):
         args.block_size = tokenizer.max_len_single_sentence  # Our input block size will be the max possible for the model
     args.block_size = min(args.block_size, tokenizer.max_len_single_sentence)
     
-    if args.reset_weights:
+    if args.no_pretraining:
         # only load model architecture but not the weights
         model = model_class(config)
     else:
@@ -564,7 +565,27 @@ def main(args):
                                             from_tf=bool('.ckpt' in args.model_name_or_path),
                                             config=config,
                                             cache_dir=args.cache_dir if args.cache_dir else None)
-    
+        
+    if args.bidirectional_decoder:
+        assert args.model_type == 'marian'
+        # load model we want encoder parameters from
+        # we use model trained in reverse direction (e.g. src_language --> tgt_language)
+        base, name = args.model_name_or_path.split('/')
+        _, _, src_language, tgt_language = name.split('-')
+        reverse_model_name = base + '/opus-mt-' + tgt_language + '-' + src_language
+        reverse_model = model_class.from_pretrained(reverse_model_name,
+                                            from_tf=bool('.ckpt' in args.model_name_or_path),
+                                            config=config,
+                                            cache_dir=args.cache_dir if args.cache_dir else None)
+
+        reverse_model_encoder_state_dict = reverse_model.get_encoder().state_dict()
+        # cross-attention won't be initialized from reverse model
+        missing_keys, unexpected_keys = model.model.decoder.load_state_dict(reverse_model_encoder_state_dict, strict=False)
+        if missing_keys:
+            logger.warning('Missing keys when initializing bidirectional_decoder: {}'.format(missing_keys))
+        if unexpected_keys:
+            logger.warning('Unexpected keys when initializing bidirectional_decoder: {}'.format(unexpected_keys))
+        
     add_special_tokens(model, tokenizer, additional_special_tokens=[args.start_special_token, args.end_special_token], pad_token=args.pad_token)
     model.to(args.device)
 
