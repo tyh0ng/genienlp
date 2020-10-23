@@ -501,6 +501,11 @@ def parse_argv(parser):
     parser.add_argument("--freeze_embeds", action="store_true")
     parser.add_argument("--bidirectional_decoder", action="store_true", help='if true we will initialize deocder weights from the encoder of another seq2seq model;'
                                                         ' this will reset decoder wights so all pretraining for decoder parameters will be removed')
+    
+    parser.add_argument('--input_column', type=int, required=True,
+                        help='The column in the input file which contains the input sentences.')
+    parser.add_argument('--gold_column', type=int, default=None,
+                        help='The column in the input file which contains the gold sentences. Defaults to --input_column if no gold is available.')
 
 
 def main(args):
@@ -521,6 +526,9 @@ def main(args):
         raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
     
     check_args(args)
+    
+    if args.gold_column is None:
+        args.gold_column = args.input_column
 
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1 or args.no_cuda:
