@@ -1,4 +1,7 @@
 from tqdm import tqdm
+import argparse
+import json
+import os
 
 
 ISO_to_LANG = {'en': 'English', 'en-US': 'English', 'fa': 'Persian', 'it': 'Italian', 'zh': 'Chinese',
@@ -42,6 +45,62 @@ def process_id(ex):
     if id_[0] == 'T':
         id_ = id_[1:]
     return id_
+
+
+def create_jsonl(path, examples, is_contextual):
+    with open(path, 'w') as fout:
+        for ex in examples:
+            if is_contextual:
+                fout.write(json.dumps({"sentence": ' '.join(ex.question)}) + '\n')
+            else:
+                fout.write(json.dumps({"sentence": ' '.join(ex.context)}) + '\n')
+
+def bootleg_process(bootleg_input_dir, bootleg_model, examples, path, is_contextual, num_workers, logger):
+    model = f'{bootleg_input_dir}/{bootleg_model}'
+
+    cand_map = f'{bootleg_input_dir}/wiki_entity_data/entity_mappings/alias2qids_wiki.json'
+
+    config_path = f'{model}/bootleg_config.json'
+    
+    # create jsonl file for examples
+    jsonl_input_path = path.rsplit('.', 1)[0] + '.jsonl'
+    jsonl_output_path = path.rsplit('.', 1)[0] + '_bootleg.jsonl'
+    
+    create_jsonl(jsonl_input_path, examples, is_contextual)
+    
+    # extract mentions
+    from bootleg.extract_mentions import extract_mentions
+    
+    extract_mentions(in_filepath=jsonl_input_path, out_filepath=jsonl_output_path, cand_map_file=cand_map, logger=logger, num_workers=num_workers)
+    
+    data_dir = os.path.dirname(jsonl_output_path)
+    data_file = os.path.basename(jsonl_output_path)
+    
+    entity_dir = f'{bootleg_input_dir}/wiki_entity_data'
+    embed_dir = f'{bootleg_input_dir}/emb_data/'
+    pretrained_bert = f'{bootleg_input_dir}/emb_data/pretrained_bert_models'
+    
+    mode = 'dump_preds'
+    
+    from bootleg.utils.parser_utils import get_full_config
+    from bootleg.run import main
+
+    overrides = ["--data_config.data_dir", data_dir,
+                 "--data_config.entity_dir", entity_dir,
+                 "--run_config.eval_batch_size", '30',
+                 "--run_config.save_dir", 'results_temp',
+                 "--run_config.init_checkpoint", model,
+                 "--run_config.loglevel", 'debug',
+                 "--data_config.test_dataset.file", data_file,
+                 "--train_config.load_optimizer_from_ckpt", 'False',
+                 "--data_config.emb_dir", embed_dir,
+                 "--data_config.alias_cand_map", 'alias2qids_wiki.json',
+                 "--data_config.word_embedding.cache_dir", pretrained_bert,
+                 '--run_config.dataset_threads', '1',
+                 '--run_config.dataloader_threads', '4']
+    
+    config_args = get_full_config(config_path, overrides)
+    main(config_args, mode)
 
 
 def chunk_file(input_src, chunk_files, chunk_size, num_chunks):

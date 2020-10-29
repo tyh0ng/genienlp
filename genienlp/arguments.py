@@ -174,6 +174,9 @@ def parse_argv(parser):
     parser.add_argument('--max_entity_len', type=int, default=4, help='Maximum length for entities when ngrams lookup_method is used ')
     parser.add_argument('--database_dir', type=str, help='Database folder containing all relevant files')
     
+    parser.add_argument('--bootleg_input_dir', type=str, help='Path to folder containing all files (e.g. alias2qids, pretrained models) for bootleg')
+    parser.add_argument('--bootleg_model', type=str, help='Bootleg model to use')
+    
     parser.add_argument('--retrieve_method', default='naive', choices=['naive', 'entity-oracle', 'type-oracle', 'bootleg'], type=str,
                         help='how to retrieve types for entity tokens (bootleg option is wip')
     
@@ -242,7 +245,6 @@ def parse_argv(parser):
     parser.add_argument('--weight_decay', default=0.0, type=float, help='weight L2 regularization')
     parser.add_argument('--gradient_accumulation_steps', default=1, type=int, help='Number of accumulation steps. Useful to effectively get larger batch sizes.')
     
-
     parser.add_argument('--load', default=None, type=str, help='path to checkpoint to load model from inside args.save')
     parser.add_argument('--resume', action='store_true', help='whether to resume training with past optimizers')
 
@@ -267,6 +269,8 @@ def parse_argv(parser):
     parser.add_argument('--curriculum_rate', default=0.1, type=float, help='growth rate for curriculum')
     parser.add_argument('--curriculum_strategy', default='linear', type=str, choices=['linear', 'exp'],
                         help='growth strategy for curriculum')
+    
+
 
 
 def post_parse(args):

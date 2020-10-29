@@ -45,7 +45,7 @@ from ...data_utils.example import Example
 from ...data_utils.database import Database
 from ...data_utils.database_utils import DOMAIN_TYPE_MAPPING
 from ..base_dataset import Split
-from .utils import ISO_to_LANG, is_device, is_entity, process_id, is_cjk_char, process, chunk_file
+from .utils import ISO_to_LANG, is_device, is_entity, process_id, is_cjk_char, process, bootleg_process, chunk_file
 
 quoted_pattern_with_space = re.compile(r'\"\s([^"]*?)\s\"')
 
@@ -57,13 +57,20 @@ class AlmondDataset(CQA):
 
     base_url = None
 
-    def __init__(self, path, *, make_example, subsample=None, cached_path=None, skip_cache=False, cache_input_data=False, **kwargs):
+    def __init__(self, path, *, make_example, **kwargs):
         
         #TODO fix cache_path for multilingual task
+        subsample = kwargs.get('subsample')
+        cached_path = kwargs.get('cached_path')
+        skip_cache = kwargs.get('skip_cache', True)
+        cache_input_data = kwargs.get('cache_input_data', False)
+        is_contextual = kwargs.get('is_contextual')
+        num_workers = kwargs.get('num_workers', 0)
+        bootleg_input_dir = kwargs.get('bootleg_input_dir', None)
+        bootleg_model = kwargs.get('bootleg_model', None)
+        
         cache_name = os.path.join(cached_path, os.path.basename(path), str(subsample))
         dir_name = os.path.basename(os.path.dirname(path))
-
-        num_workers = kwargs.get('num_workers', 0)
 
         if os.path.exists(cache_name) and not skip_cache:
             logger.info(f'Loading cached data from {cache_name}')
@@ -75,7 +82,7 @@ class AlmondDataset(CQA):
                     n += 1
 
             max_examples = min(n, subsample) if subsample is not None else n
-
+            
             if num_workers > 0:
                 num_processes = min(num_workers, int(mp.cpu_count()))
                 logger.info(f'Using {num_processes} workers...')
@@ -104,6 +111,9 @@ class AlmondDataset(CQA):
                                 'example_batch_size': 1, 'make_process_example': make_example,
                                 'kwargs': kwargs}
                 examples = process(process_args)
+                
+            if bootleg_input_dir and bootleg_model:
+                bootleg_process(bootleg_input_dir, bootleg_model, examples, path, is_contextual, num_workers, logger)
 
             if cache_input_data:
                 os.makedirs(os.path.dirname(cache_name), exist_ok=True)
@@ -163,9 +173,13 @@ class BaseAlmondTask(BaseTask):
         # initialize the database
         if args.do_ner:
             self.TTtype2DBtype = dict()
-            for domain in self.args.almond_domains:
-                self.TTtype2DBtype.update(DOMAIN_TYPE_MAPPING[domain])
-            self._init_db()
+            
+            if self.args.retrieve_method == 'bootleg':
+                self._init_bootleg()
+            else:
+                for domain in self.args.almond_domains:
+                    self.TTtype2DBtype.update(DOMAIN_TYPE_MAPPING[domain])
+                self._init_db()
 
     def _init_db(self):
         if self.args.database_type in ['json', 'local-elastic']:
@@ -186,6 +200,19 @@ class BaseAlmondTask(BaseTask):
         #         es_dump_type2id(self.db)
         #         es_dump_canonical2type(self.db)
 
+    def _init_bootleg(self):
+        from bootleg.utils.parser_utils import get_full_config
+        bootleg_dir = self.args.bootleg_input_dir
+        if self.args.bootleg_debug:
+            config_path = f'{bootleg_dir}/test/run_args/test_model_training_2.json'
+        else:
+            config_path = f'{bootleg_dir}/bootleg_wiki/bootleg_config.json'
+
+        config_args = get_full_config(config_path)
+        self.bootleg_annot = BootlegAnnotator(config_args, device=bootleg_device, bootleg_dir=bootleg_dir,
+                                              debug=self.args.bootleg_debug)
+        self.bootleg_annot.bootleg_es = self.db
+
     def is_contextual(self):
         return NotImplementedError
     
@@ -200,7 +227,7 @@ class BaseAlmondTask(BaseTask):
         raise NotImplementedError()
 
     def get_splits(self, root, **kwargs):
-        return AlmondDataset.return_splits(path=os.path.join(root, 'almond'), make_example=self._make_example, **kwargs)
+        return AlmondDataset.return_splits(path=os.path.join(root, 'almond'), make_example=self._make_example, is_contextual=self.is_contextual(), **kwargs)
     
     def _detokenize_cjk_chars(self, sentence):
         output = []
@@ -474,7 +501,7 @@ class AlmondDialogueNLU(BaseAlmondTask):
                                 tokenize=self.tokenize, lower=False)
 
     def get_splits(self, root, **kwargs):
-        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/user'), make_example=self._make_example, **kwargs)
+        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/user'), make_example=self._make_example, is_contextual=self.is_contextual(), **kwargs)
 
 
 @register_task('almond_dialogue_nlu_agent')
@@ -501,7 +528,7 @@ class AlmondDialogueNLUAgent(BaseAlmondTask):
                                 tokenize=self.tokenize, lower=False)
 
     def get_splits(self, root, **kwargs):
-        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/agent'), make_example=self._make_example, **kwargs)
+        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/agent'), make_example=self._make_example, is_contextual=self.is_contextual(), **kwargs)
 
 
 @register_task('almond_dialogue_nlg')
@@ -530,7 +557,7 @@ class AlmondDialogueNLG(BaseAlmondTask):
                                 tokenize=self.tokenize, lower=False)
 
     def get_splits(self, root, **kwargs):
-        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/agent'), make_example=self._make_example, **kwargs)
+        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/agent'), make_example=self._make_example, is_contextual=self.is_contextual(), **kwargs)
 
 
 @register_task('almond_dialogue_policy')
@@ -558,7 +585,7 @@ class AlmondDialoguePolicy(BaseAlmondTask):
                                 tokenize=self.tokenize, lower=False)
 
     def get_splits(self, root, **kwargs):
-        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/agent'), make_example=self._make_example, **kwargs)
+        return AlmondDataset.return_splits(path=os.path.join(root, 'almond/agent'), make_example=self._make_example, is_contextual=self.is_contextual(), **kwargs)
     
 
 class BaseAlmondMultiLingualTask(BaseAlmondTask):
@@ -592,7 +619,7 @@ class BaseAlmondMultiLingualTask(BaseAlmondTask):
         
         for dir in all_dirs:
             almond_dataset = AlmondDataset.return_splits(path=os.path.join(root, 'almond/multilingual/{}'.format(dir)),
-                                                         make_example=self._make_example, **kwargs)
+                                                         make_example=self._make_example, is_contextual=self.is_contextual(), **kwargs)
             all_datasets.append(almond_dataset)
             
         used_fields = [field for field in all_datasets[0]._fields if getattr(all_datasets[0], field) is not None]
