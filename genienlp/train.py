@@ -81,7 +81,7 @@ def prepare_data(args, logger):
         kwargs.update({'subsample': args.subsample, 'skip_cache': args.skip_cache, 'cache_input_data': args.cache_input_data,
                        'cached_path': os.path.join(args.cache, task.name), 'all_dirs': args.train_languages,
                        'sentence_batching': args.sentence_batching, 'almond_lang_as_question': args.almond_lang_as_question,
-                       'num_workers': args.num_workers})
+                       'num_workers': args.num_workers, 'features_size': args.features_size, 'features_default_val': args.features_default_val})
         if args.use_curriculum:
             kwargs['curriculum'] = True
 
@@ -103,12 +103,14 @@ def prepare_data(args, logger):
             vocab_sets.extend(split)
             
         if task.name.startswith('almond'):
-            if hasattr(task, 'db'):
-                args.num_db_types = len(task.db.type2id)
-                args.db_unk_id = task.db.unk_id
+            args.db_unk_id = int(args.features_default_val[0])
+            if args.do_ner:
+                if getattr(task, 'db', None):
+                    args.num_db_types = len(task.db.type2id)
+                elif getattr(task, 'bootleg', None):
+                    args.num_db_types = len(task.bootleg.type2id)
             else:
                 args.num_db_types = 0
-                args.db_unk_id = 0
             save_args(args, force_overwrite=True)
 
     for task in args.val_tasks:
@@ -119,7 +121,8 @@ def prepare_data(args, logger):
             kwargs['validation'] = args.eval_set_name
         kwargs.update({'subsample': args.subsample, 'skip_cache': args.skip_cache, 'cache_input_data': args.cache_input_data,
                        'cached_path': os.path.join(args.cache, task.name), 'all_dirs': args.eval_languages,
-                        'almond_lang_as_question': args.almond_lang_as_question, 'num_workers': args.num_workers})
+                        'almond_lang_as_question': args.almond_lang_as_question, 'num_workers': args.num_workers,
+                       'features_size': args.features_size, 'features_default_val': args.features_default_val})
         
         logger.info(f'Adding {task.name} to validation datasets')
         split = task.get_splits(args.data, lower=args.lower, **kwargs)
@@ -363,7 +366,8 @@ def train(args, devices, model, opt, lr_scheduler, train_sets, train_iterations,
         'override_question': args.override_question,
         'override_context': args.override_context,
         'features': args.features,
-        'db_unk_id': db_unk_id
+        'features_size': args.features_size,
+        'features_default_val': args.features_default_val
     }
     
     train_iters = [(task,
