@@ -191,7 +191,8 @@ def train_step(model, batch, iteration, opt, devices, lr_scheduler=None, grad_cl
     non_accumulated_loss = loss.item()
     loss = loss*len(batch[0])
     accumulated_batch_lengths += len(batch[0])
-
+    
+    import pdb ; pdb.set_trace()
     loss.backward()
     grad_norm = None
     if (iteration+1) % gradient_accumulation_steps == 0:
