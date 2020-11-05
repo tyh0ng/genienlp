@@ -144,7 +144,13 @@ def parse_argv(parser):
     
     parser.add_argument('--masked_paraphrasing', action='store_true', help='mask input tokens and infill them using denoising pretrained model')
     parser.add_argument('--fairseq_mask_prob', type=float, default=0.15, help='Probability of an input token being masked in the sentence for masked_paraphrasing')
-    
+    parser.add_argument('--delete_tokens', action='store_true', help='delete input tokens and infill them using denoising pretrained model')
+    parser.add_argument('--delete_token_prob', type=float, default=0.15, help='Probability of an input token being deleted in the sentence for masked_paraphrasing')
+    parser.add_argument('--infill_text', action='store_true', help='use text infilling method to generate paraphrased sentences')
+    parser.add_argument('--num_text_spans', type=int, default=5, help='number of text spans to sample for text infilling method')
+    parser.add_argument('--permute_sentence', action='store_true', help='use sentence permutation method to generate paraphrased sentences')
+    parser.add_argument('--rotate_document', action='store_true', help='use document rotation method to generate paraphrased sentences')
+
     parser.add_argument('--fp16', action='store_true',
                         help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit. On certain GPUs (e.g. Nvidia V100) improves the inference speed")
     parser.add_argument('--fp16_opt_level', type=str, default='O1',
@@ -324,7 +330,8 @@ def run_single_process_generation(args, config):
                                                                 masked_paraphrasing=args.masked_paraphrasing,
                                                                 fairseq_mask_prob=args.fairseq_mask_prob,
                                                                 mask_token=mask_token,
-                                                                delete_tokens=args.delete_token_prob,
+                                                                delete_tokens=args.delete_tokens,
+                                                                delete_token_prob=args.delete_token_prob,
                                                                 infill_text=args.infill_text,
                                                                 num_text_spans=args.num_text_spans,
                                                                 permute_sentence=args.permute_sentence,
